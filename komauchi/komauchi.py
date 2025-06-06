@@ -6,23 +6,23 @@ FRAME_NO_MAX = 65536
 CELLS = ["A", "B", "C", "D"]
 
 # メッセージボックス
-def showInfo(title, str):
+def showInfo(title, obj):
     QMessageBox.information(
         Krita.instance().activeWindow().qwindow(),
         title,
-        str
+        str(obj)
     )
-def showWarn(title, str):
+def showWarn(title, obj):
     QMessageBox.warning(
         Krita.instance().activeWindow().qwindow(),
         title,
-        str
+        str(obj)
     )
-def showError(title, str):
+def showError(title, obj):
     QMessageBox.critical(
         Krita.instance().activeWindow().qwindow(),
         title,
-        str
+        str(obj)
     )
 
 
@@ -56,6 +56,17 @@ class MyExtension(Extension):
         if not csv_file_path:
             showWarn("キャンセル", "実行を中止しました")
             return
+
+
+        self.krita_layers = {}
+        # Kritaのレイヤーノードを再帰的に収集するヘルパー関数
+        def _collect_layers(node):
+            if node.type() == 'grouplayer': # グループレイヤーの場合
+                for child in node.childNodes():
+                    _collect_layers(child) # 子ノードも再帰的に収集
+            elif node.type() == 'clonelayer': # クローンレイヤだけ回収
+                self.krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
+        _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
 
 
         try:
@@ -95,6 +106,9 @@ class MyExtension(Extension):
 
                     keyframes[frame_no] = [int(key) if key.isdigit() else None for key in rows[1:]]
 
+            # アニメーションの準備
+            self.setup_animation(doc)
+
             # キーフレームを適用
             self.apply_keyframes(doc, keyframes)
 
@@ -123,25 +137,21 @@ class MyExtension(Extension):
         showWarn("未対応", f"未対応の設定です: {rows[0]}")
 
 
+    # アニメーションの準備
+    def setup_animation(self, doc):
+        for cell in CELLS:
+            for target_key, target_layer_name in self.target_layers[cell].items():
+                if target_layer_name is not None:
+                    self.krita_layers[target_layer_name].enableAnimation()
+
     # キーフレームの設定
     def apply_keyframes(self, doc, keyframes):
-        krita_layers = {}
-        # Kritaのレイヤーノードを再帰的に収集するヘルパー関数
-        def _collect_layers(node):
-            if node.nodeType() == 'grouplayer': # グループレイヤーの場合
-                for child in node.childNodes():
-                    _collect_layers(child) # 子ノードも再帰的に収集
-            elif node.nodeType() == 'clonelayer': # クローンレイヤだけ回収
-                krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
-        _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
-
-
-        for i, keyframe in enumerate(keyframes):
+        for frame_no, keyframe in enumerate(keyframes):
             # Frameスキップ
             if keyframe is None:
                 continue
 
-            frame_no = i + 1
+            doc.setCurrentTime(frame_no)
 
             # Frameに含まれるキー
             for j, keyframe_key in enumerate(keyframe):
@@ -151,11 +161,13 @@ class MyExtension(Extension):
                 cell = CELLS[j]
 
                 for target_key, target_layer_name in self.target_layers[cell].items():
-                    target_layer = krita_layers.get(target_layer_name)
+                    target_layer = self.krita_layers.get(target_layer_name)
                     if target_layer is None:
                         raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
 
-                    target_layer.setAnimationFrameVisible(frame_no, keyframe_key == target_key)
+                    showInfo("debug", target_layer.animated())
+                    return
+                    target_layer.setOpacity(255)
 
 Krita.instance().addExtension(MyExtension(Krita.instance()))
 
