@@ -139,10 +139,19 @@ class MyExtension(Extension):
 
     # アニメーションの準備
     def setup_animation(self, doc):
+        doc.setCurrentTime(0)
+        instance = Krita.instance()
+
         for cell in CELLS:
             for target_key, target_layer_name in self.target_layers[cell].items():
                 if target_layer_name is not None:
-                    self.krita_layers[target_layer_name].enableAnimation()
+                    target_layer = self.krita_layers[target_layer_name]
+
+                    # 0フレーム目にopacity:255でキーを打つ(初期化)
+                    doc.setActiveNode(target_layer)
+                    instance.action('add_scalar_keyframes').trigger()
+                    target_layer.setOpacity(255)
+                    doc.refreshProjection()  # これをしないと落ちる
 
     # キーフレームの設定
     def apply_keyframes(self, doc, keyframes):
@@ -165,9 +174,7 @@ class MyExtension(Extension):
                     if target_layer is None:
                         raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
 
-                    showInfo("debug", target_layer.animated())
-                    return
-                    target_layer.setOpacity(255)
+                    target_layer.setOpacity(255*int(target_key)//255)
 
 Krita.instance().addExtension(MyExtension(Krita.instance()))
 
