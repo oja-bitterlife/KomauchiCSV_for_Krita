@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=Krita/PythonPlugin
+X-KDE-Library=komauchi
+X-Python-2-Compatible=false
+Name=コマ打ち from CSV
+Comment=CSVデータからアニメーションフレームを設定します
+X-Krita-Manual=manual.html
