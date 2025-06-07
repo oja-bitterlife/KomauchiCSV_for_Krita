@@ -5,7 +5,8 @@ from PyQt5.Qt import qDebug, qWarning, qCritical
 import csv, re
 
 FRAME_NO_MAX = 24*60*30  # 30分まで
-CELLS = ["A", "B", "C", "D", "E"]  # A, B, C, D, +Extra
+KEY_NO_MAX = 64  # キー番号の最大
+CELL_NAMES = ["A", "B", "C", "D", "E"]  # A, B, C, D, +Extra
 
 # メッセージボックス
 def showInfo(obj, title=None):
@@ -27,11 +28,60 @@ def logError(obj):
     qCritical(str(obj))
 
 
-class MyExtension(Extension):
+class TargetLayer:
+    def __init__(self, doc):
+        self.data = []
+        self.krita_layers = {}
+
+        # Kritaのレイヤーノードを再帰的に収集するヘルパー関数
+        def _collect_layers(node):
+            if node.type() == 'grouplayer': # グループレイヤーの場合
+                for child in node.childNodes():
+                    _collect_layers(child) # 子ノードも再帰的に収集
+            else:
+                self.krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
+        _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
+
+
+    def setData(self, key_no, cell_index, layer_name):
+        # 入力チェック
+        if key_no < 0 or key_no >= KEY_NO_MAX:
+            raise ValueError(f"KeyNo Error: {key_no}")
+        if cell_index < 0 or cell_index >= len(CELL_NAMES):
+            raise ValueError(f"CellIndex Error: {cell_index}")
+
+        # 足りなければ拡張する
+        if len(self.data) <= key_no:
+            self.data.extend([[None] * len(CELL_NAMES)] * (key_no - len(self.data) + 1))
+
+        # ターゲットレイヤーを設定
+        self.data[key_no][cell_index] = self.krita_layers[layer_name]
+
+class KeyframeGrid:
+    def __init__(self, doc):
+        self.data = []
+
+    def setData(self, frame_no, cell_index, key_no):
+        # 入力チェック
+        if key_no < 0 or key_no >= KEY_NO_MAX:
+            raise ValueError(f"KeyNo Error: {key_no}")
+        if cell_index < 0 or cell_index >= len(CELL_NAMES):
+            raise ValueError(f"CellIndex Error: {cell_index}")
+        if frame_no < 0 or frame_no >= FRAME_NO_MAX:
+            raise ValueError(f"FrameNo Error: {frame_no}")
+
+        # frame_noが入るようサイズを増やしておく
+        if len(self.data) <= frame_no:
+            self.data.extend([[None] * len(CELL_NAMES)] * (frame_no - len(self.data) + 1))
+
+        # キーを設定
+        self.data[frame_no][cell_index] = key_no
+
+
+class KomauchiFromCSV(Extension):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.target_layers = {cell: {} for cell in CELLS }
 
     def setup(self):
         pass
@@ -57,19 +107,10 @@ class MyExtension(Extension):
             showInfo("実行を中止しました")
             return
 
-
-        self.krita_layers = {}
-        # Kritaのレイヤーノードを再帰的に収集するヘルパー関数
-        def _collect_layers(node):
-            if node.type() == 'grouplayer': # グループレイヤーの場合
-                for child in node.childNodes():
-                    _collect_layers(child) # 子ノードも再帰的に収集
-            elif node.type() == 'clonelayer': # クローンレイヤだけ回収
-                self.krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
-        _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
-
-
         try:
+            target_layers = TargetLayer(doc)
+            keyframe_grid = KeyframeGrid(doc)
+
             with open(csv_file_path, 'r', encoding='utf-8') as f:
                 keyframes = []
 
@@ -92,29 +133,24 @@ class MyExtension(Extension):
                     # 3. 設定行の解析
                     if rows[0].startswith('@'):
                         # 設定の取得
-                        self.load_setting(rows)
+                        self.load_setting(rows, target_layers)
                         continue
 
                     # 4. データ行
-                    frame_no = int(rows[0])
-                    if frame_no < 0 or frame_no >= FRAME_NO_MAX:
-                        raise Exception(f"FrameNo Error: {rows[0]}")
-
-                    # frame_noが入るようサイズを増やしておく
-                    if len(keyframes) <= frame_no:
-                        keyframes.extend([None] * (frame_no - len(keyframes) + 1))
-
-                    keyframes[frame_no] = [key if key.isdigit() else None for key in rows[1:]]
+                    for i, key in enumerate(rows[1:]):
+                        if not key:
+                            continue
+                        keyframe_grid.setData(int(rows[0]), i, int(key))
 
             # アニメーションの準備
-            self.setup_animation(doc)
+            # self.setup_animation(doc)
 
             # キーフレームを適用
-            self.apply_keyframes(doc, keyframes)
+            # self.apply_keyframes(doc, keyframes)
 
             # 設定確認
-            # for k, v in self.settings.items():
-            #     showInfo(k, v)
+            logInfo(str(target_layers))
+
 
         except FileNotFoundError:
             showError(f"CSVファイルを開けませんでした: {csv_file_path}")
@@ -126,13 +162,14 @@ class MyExtension(Extension):
 
 
     # @設定の解析
-    def load_setting(self, rows):
-        m = re.match(r"@([A-Z]?)(\d?)$", rows[0])
-        if m:
-            cell,key = m.groups()[:2]
-            if cell and key:
-                self.target_layers[cell][key] = rows[1]
-                return
+    def load_setting(self, rows, target_layers):
+        if rows[0] == "@K":
+            key = int(rows[1])
+            for i,row in enumerate(rows[2:]):
+                if not row:
+                    continue
+                target_layers.setData(key, i, row)
+            return
 
         showWarn(f"未対応の設定です: {rows[0]}")
 
@@ -142,18 +179,18 @@ class MyExtension(Extension):
         doc.setCurrentTime(0)
         instance = Krita.instance()
 
-        for cell in CELLS:
-            for target_key, target_layer_name in self.target_layers[cell].items():
-                if target_layer_name is not None:
-                    target_layer = self.krita_layers[target_layer_name]
+        # for cell in CELL_NAMES:
+        #     for target_key, target_layer_name in self.target_layers[cell].items():
+        #         if target_layer_name is not None:
+        #             target_layer = self.krita_layers[target_layer_name]
 
-                    # 0フレーム目にopacity:255でキーを打つ(初期化)
-                    doc.setActiveNode(target_layer)
-                    instance.action('add_scalar_keyframes').trigger()
-                    instance.action('interpolation_constant').trigger()
-                    target_layer.setOpacity(255)
-                    doc.refreshProjection()  # これをしないと落ちる
-                    showInfo("test", dir(instance))
+        #             # 0フレーム目にopacity:255でキーを打つ(初期化)
+        #             doc.setActiveNode(target_layer)
+        #             instance.action('add_scalar_keyframes').trigger()
+        #             instance.action('interpolation_constant').trigger()
+        #             target_layer.setOpacity(255)
+        #             doc.refreshProjection()  # これをしないと落ちる
+        #             showInfo("test", dir(instance))
 
     # キーフレームの設定
     def apply_keyframes(self, doc, keyframes):
@@ -164,21 +201,21 @@ class MyExtension(Extension):
 
             doc.setCurrentTime(frame_no)
 
-            # Frameに含まれるキー
-            for j, keyframe_key in enumerate(keyframe):
-                if keyframe_key is None:
-                    # キーがあれば消去
-                    continue
-                cell = CELLS[j]
+            # # Frameに含まれるキー
+            # for j, keyframe_key in enumerate(keyframe):
+            #     if keyframe_key is None:
+            #         # キーがあれば消去
+            #         continue
+            #     cell = CELL_NAMES[j]
 
-                for target_key, target_layer_name in self.target_layers[cell].items():
-                    target_layer = self.krita_layers.get(target_layer_name)
-                    if target_layer is None:
-                        raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
+            #     for target_key, target_layer_name in self.target_layers[cell].items():
+            #         target_layer = self.krita_layers.get(target_layer_name)
+            #         if target_layer is None:
+            #             raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
 
-                    target_layer.setOpacity(255 if target_key == keyframe_key else 0)
+            #         target_layer.setOpacity(255 if target_key == keyframe_key else 0)
 
-Krita.instance().addExtension(MyExtension(Krita.instance()))
+Krita.instance().addExtension(KomauchiFromCSV(Krita.instance()))
 
 
 
