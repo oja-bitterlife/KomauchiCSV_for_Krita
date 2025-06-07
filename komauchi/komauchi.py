@@ -30,7 +30,7 @@ def logError(obj):
 
 class TargetLayer:
     def __init__(self, doc):
-        self.data = []
+        self.data = [[None] * KEY_NO_MAX for _ in range(len(CELL_NAMES))]
         self.krita_layers = {}
 
         # Kritaのレイヤーノードを再帰的に収集するヘルパー関数
@@ -42,23 +42,18 @@ class TargetLayer:
                 self.krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
         _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
 
-
     def setTarget(self, key_no, cell_index, layer_name):
-        # 入力チェック
-        if key_no < 0 or key_no >= KEY_NO_MAX:
-            raise ValueError(f"KeyNo Error: {key_no}")
-        if cell_index < 0 or cell_index >= len(CELL_NAMES):
-            raise ValueError(f"CellIndex Error: {cell_index}")
-
-        # 足りなければ拡張する
-        if len(self.data) <= key_no:
-            self.data.extend([[None] * len(CELL_NAMES) for _ in range(key_no - len(self.data) + 1)])
-
         # ターゲットレイヤーを設定
-        self.data[key_no][cell_index] = self.krita_layers[layer_name]
+        self.data[cell_index][key_no] = self.krita_layers[layer_name]
 
     def __repr__(self) -> str:
-        return "\n".join([f"k{i}: {str([target.name() if target is not None else None for target in cells])}" for i,cells in enumerate(self.data)])
+        return "\n".join([f"{CELL_NAMES[i]}: {str([cell_target.name() if cell_target is not None else None for cell_target in keys])}" for i,keys in enumerate(self.data)])
+
+    def getLayer(self, cell_index, key_no):
+        return self.data[cell_index][key_no]
+
+    def getTargetList(self, cell_index):
+        return self.data[cell_index]
 
 class KeyframeGrid:
     def __init__(self, doc):
@@ -80,8 +75,11 @@ class KeyframeGrid:
         # キーを設定
         self.data[frame_no][cell_index] = key_no
 
+    def getCellkeys(self, cell_index):
+        return [cells[cell_index] for cells in self.data]
+
     def __repr__(self) -> str:
-        return "\n".join(f"f{i}: {str(frame)}" for i, frame in enumerate(self.data))
+        return "\n".join(f"{i}: {str(frame)}" for i, frame in enumerate(self.data))
 
 
 class KomauchiFromCSV(Extension):
@@ -118,8 +116,6 @@ class KomauchiFromCSV(Extension):
             keyframe_grid = KeyframeGrid(doc)
 
             with open(csv_file_path, 'r', encoding='utf-8') as f:
-                keyframes = []
-
                 for rows in csv.reader(f):
                     # 1. 空行をスキップ
                     if not rows:
@@ -149,10 +145,10 @@ class KomauchiFromCSV(Extension):
                         keyframe_grid.setKey(int(rows[0]), i, int(key))
 
             # アニメーションの準備
-            # self.setup_animation(doc)
+            self.setup_animation(doc, target_layers)
 
             # キーフレームを適用
-            # self.apply_keyframes(doc, keyframes)
+            self.apply_keyframes(doc, target_layers, keyframe_grid)
 
             # 設定確認
             logDebug(target_layers)
@@ -182,45 +178,48 @@ class KomauchiFromCSV(Extension):
 
 
     # アニメーションの準備
-    def setup_animation(self, doc):
+    def setup_animation(self, doc, target_layers):
         doc.setCurrentTime(0)
         instance = Krita.instance()
 
-        # for cell in CELL_NAMES:
-        #     for target_key, target_layer_name in self.target_layers[cell].items():
-        #         if target_layer_name is not None:
-        #             target_layer = self.krita_layers[target_layer_name]
+        for cell_index in range(len(CELL_NAMES)):
+            for target_layer in target_layers.getTargetList(cell_index):
+                if target_layer is None:
+                    continue
 
-        #             # 0フレーム目にopacity:255でキーを打つ(初期化)
-        #             doc.setActiveNode(target_layer)
-        #             instance.action('add_scalar_keyframes').trigger()
-        #             instance.action('interpolation_constant').trigger()
-        #             target_layer.setOpacity(255)
-        #             doc.refreshProjection()  # これをしないと落ちる
-        #             showInfo("test", dir(instance))
+                # 0フレーム目にopacity:255でキーを打つ(初期化)
+                doc.setActiveNode(target_layer)
+                instance.action('add_scalar_keyframes').trigger()
+                # instance.action('interpolation_constant').trigger()
+                target_layer.setOpacity(255)
+                doc.refreshProjection()  # これをしないと落ちる
+
 
     # キーフレームの設定
-    def apply_keyframes(self, doc, keyframes):
-        for frame_no, keyframe in enumerate(keyframes):
-            # Frameスキップ
-            if keyframe is None:
-                continue
+    def apply_keyframes(self, doc, target_layers, keyframe_grid):
+        for cell_index in range(len(CELL_NAMES)):
+            befor_key_no = None
 
-            doc.setCurrentTime(frame_no)
+            for frame_no, key_no in enumerate(keyframe_grid.getCellkeys(cell_index)):
+                doc.setCurrentTime(frame_no)
 
-            # # Frameに含まれるキー
-            # for j, keyframe_key in enumerate(keyframe):
-            #     if keyframe_key is None:
-            #         # キーがあれば消去
-            #         continue
-            #     cell = CELL_NAMES[j]
+                # セルの対象レイヤ全てを一旦消す
+                for layer in target_layers.getTargetList(cell_index):
+                    if layer is not None:
+                        layer.setOpacity(0)
 
-            #     for target_key, target_layer_name in self.target_layers[cell].items():
-            #         target_layer = self.krita_layers.get(target_layer_name)
-            #         if target_layer is None:
-            #             raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
+                # 設定するレイヤの取得
+                if key_no is None:
+                    # 前の続き
+                    key_no = befor_key_no
+                else:
+                    # 更新
+                    befor_key_no = key_no
 
-            #         target_layer.setOpacity(255 if target_key == keyframe_key else 0)
+                # # 対象レイヤを表示する
+                if key_no is not None:
+                    target_layer = target_layers.getLayer(cell_index, key_no)
+                    target_layer.setOpacity(255)
 
 Krita.instance().addExtension(KomauchiFromCSV(Krita.instance()))
 
