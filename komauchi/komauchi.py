@@ -180,7 +180,7 @@ class KomauchiFromCSV(Extension):
 
     # @設定の解析
     def load_setting(self, rows, target_layers):
-        if rows[0] == "@key":
+        if rows[0].upper() == "@CELL":
             cell_name = rows[1].upper()
 
             if cell_name not in CELL_NAMES:
