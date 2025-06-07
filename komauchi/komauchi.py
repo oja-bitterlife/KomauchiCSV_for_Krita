@@ -43,7 +43,7 @@ class TargetLayer:
         _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
 
 
-    def setData(self, key_no, cell_index, layer_name):
+    def setTarget(self, key_no, cell_index, layer_name):
         # 入力チェック
         if key_no < 0 or key_no >= KEY_NO_MAX:
             raise ValueError(f"KeyNo Error: {key_no}")
@@ -52,20 +52,19 @@ class TargetLayer:
 
         # 足りなければ拡張する
         if len(self.data) <= key_no:
-            self.data.extend([[None] * len(CELL_NAMES)] * (key_no - len(self.data) + 1))
+            self.data.extend([[None] * len(CELL_NAMES) for _ in range(key_no - len(self.data) + 1)])
 
         # ターゲットレイヤーを設定
         self.data[key_no][cell_index] = self.krita_layers[layer_name]
 
     def __repr__(self) -> str:
-        # return str([[target.name() if target is not None else None for target in cells]for cells in self.data])
-        return str([[target.name() if target is not None else None for target in cells]for cells in self.data])
+        return "\n".join([f"k{i}: {str([target.name() if target is not None else None for target in cells])}" for i,cells in enumerate(self.data)])
 
 class KeyframeGrid:
     def __init__(self, doc):
         self.data = []
 
-    def setData(self, frame_no, cell_index, key_no):
+    def setKey(self, frame_no, cell_index, key_no):
         # 入力チェック
         if key_no < 0 or key_no >= KEY_NO_MAX:
             raise ValueError(f"KeyNo Error: {key_no}")
@@ -76,13 +75,13 @@ class KeyframeGrid:
 
         # frame_noが入るようサイズを増やしておく
         if len(self.data) <= frame_no:
-            self.data.extend([[None] * len(CELL_NAMES)] * (frame_no - len(self.data) + 1))
+            self.data.extend([[None] * len(CELL_NAMES) for _ in range(frame_no - len(self.data) + 1)])
 
         # キーを設定
         self.data[frame_no][cell_index] = key_no
 
     def __repr__(self) -> str:
-        return str(self.data)
+        return "\n".join(f"f{i}: {str(frame)}" for i, frame in enumerate(self.data))
 
 
 class KomauchiFromCSV(Extension):
@@ -147,7 +146,7 @@ class KomauchiFromCSV(Extension):
                     for i, key in enumerate(rows[1:]):
                         if not key:
                             continue
-                        keyframe_grid.setData(int(rows[0]), i, int(key))
+                        keyframe_grid.setKey(int(rows[0]), i, int(key))
 
             # アニメーションの準備
             # self.setup_animation(doc)
@@ -157,6 +156,7 @@ class KomauchiFromCSV(Extension):
 
             # 設定確認
             logDebug(target_layers)
+            logDebug(keyframe_grid)
 
 
         except FileNotFoundError:
@@ -171,11 +171,11 @@ class KomauchiFromCSV(Extension):
     # @設定の解析
     def load_setting(self, rows, target_layers):
         if rows[0] == "@K":
-            key = int(rows[1])
-            for i,row in enumerate(rows[2:]):
-                if not row:
+            key_no = int(rows[1])
+            for cell_index, layer_name in enumerate(rows[2:]):
+                if not layer_name:
                     continue
-                target_layers.setData(key, i, row)
+                target_layers.setTarget(key_no, cell_index, layer_name)
             return
 
         showWarn(f"未対応の設定です: {rows[0]}")
