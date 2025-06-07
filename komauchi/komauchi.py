@@ -20,12 +20,12 @@ def showError(obj, title=None):
     QMessageBox.critical(Krita.instance().activeWindow().qwindow(), str(title), str(obj))
 
 # ロギング
-def logInfo(obj):
-    qDebug(str(obj))
+def logDebug(obj):
+    qDebug(str(obj).encode('utf-8'))
 def logWarn(obj):
-    qWarning(str(obj))
+    qWarning(str(obj).encode('utf-8'))
 def logError(obj):
-    qCritical(str(obj))
+    qCritical(str(obj).encode('utf-8'))
 
 
 class TargetLayer:
@@ -57,6 +57,10 @@ class TargetLayer:
         # ターゲットレイヤーを設定
         self.data[key_no][cell_index] = self.krita_layers[layer_name]
 
+    def __repr__(self) -> str:
+        # return str([[target.name() if target is not None else None for target in cells]for cells in self.data])
+        return str([[target.name() if target is not None else None for target in cells]for cells in self.data])
+
 class KeyframeGrid:
     def __init__(self, doc):
         self.data = []
@@ -76,6 +80,9 @@ class KeyframeGrid:
 
         # キーを設定
         self.data[frame_no][cell_index] = key_no
+
+    def __repr__(self) -> str:
+        return str(self.data)
 
 
 class KomauchiFromCSV(Extension):
@@ -149,7 +156,7 @@ class KomauchiFromCSV(Extension):
             # self.apply_keyframes(doc, keyframes)
 
             # 設定確認
-            logInfo(str(target_layers))
+            logDebug(target_layers)
 
 
         except FileNotFoundError:
