@@ -6,7 +6,7 @@ import csv, re
 
 FRAME_NO_MAX = 24*60*30  # 30分まで
 KEY_NO_MAX = 32  # キー番号の最大
-CELL_NAMES = ["A", "B", "C", "D", "E"]  # A, B, C, D, +Extra
+CELL_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H"]
 
 # メッセージボックス
 def showInfo(obj, title=None):
@@ -177,10 +177,12 @@ class KomauchiFromCSV(Extension):
     # @設定の解析
     def load_setting(self, rows, target_layers):
         if rows[0] == "@key":
-            if rows[1] not in CELL_NAMES:
-                raise ValueError(f"{rows[1]} はセル名として使えません")
+            cell_name = rows[1].upper()
 
-            cell_index = CELL_NAMES.index(rows[1])
+            if cell_name not in CELL_NAMES:
+                raise ValueError(f"{cell_name} はセル名として使えません")
+
+            cell_index = CELL_NAMES.index(cell_name)
             for i, layer_name in enumerate(rows[2:]):
                 if not layer_name:
                     continue
