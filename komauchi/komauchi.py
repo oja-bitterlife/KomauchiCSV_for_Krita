@@ -1,35 +1,35 @@
 from krita import *
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.Qt import qDebug, qWarning, qCritical
+
 import csv, re
 
-FRAME_NO_MAX = 65536
-CELLS = ["A", "B", "C", "D"]
+FRAME_NO_MAX = 24*60*30  # 30分まで
+CELLS = ["A", "B", "C", "D", "E"]  # A, B, C, D, +Extra
 
 # メッセージボックス
-def showInfo(title, obj):
-    QMessageBox.information(
-        Krita.instance().activeWindow().qwindow(),
-        title,
-        str(obj)
-    )
-def showWarn(title, obj):
-    QMessageBox.warning(
-        Krita.instance().activeWindow().qwindow(),
-        title,
-        str(obj)
-    )
-def showError(title, obj):
-    QMessageBox.critical(
-        Krita.instance().activeWindow().qwindow(),
-        title,
-        str(obj)
-    )
+def showInfo(obj, title=None):
+    title = str(title) if title is not None else "情報"
+    QMessageBox.information(Krita.instance().activeWindow().qwindow(), str(title), str(obj))
+def showWarn(obj, title=None):
+    title = str(title) if title is not None else "警告"
+    QMessageBox.warning(Krita.instance().activeWindow().qwindow(), str(title), str(obj))
+def showError(obj, title=None):
+    title = str(title) if title is not None else "エラー"
+    QMessageBox.critical(Krita.instance().activeWindow().qwindow(), str(title), str(obj))
+
+# ロギング
+def logInfo(obj):
+    qDebug(str(obj))
+def logWarn(obj):
+    qWarning(str(obj))
+def logError(obj):
+    qCritical(str(obj))
 
 
 class MyExtension(Extension):
 
     def __init__(self, parent):
-        # これは親クラスを初期化します。サブクラス化の際に重要です。
         super().__init__(parent)
         self.target_layers = {cell: {} for cell in CELLS }
 
@@ -45,7 +45,7 @@ class MyExtension(Extension):
         doc = Krita.instance().activeDocument()
         if not doc:
             # ファイルを開いていない
-            showWarn("ドキュメントがありません", "先にドキュメントを開いてください")
+            showWarn("先にドキュメントを開いてください")
             return
         doc_path = doc.fileName()
 
@@ -54,7 +54,7 @@ class MyExtension(Extension):
                                                     doc_path,
                                                     "CSV Files (*.csv);;All Files (*)")
         if not csv_file_path:
-            showWarn("キャンセル", "実行を中止しました")
+            showInfo("実行を中止しました")
             return
 
 
@@ -104,7 +104,7 @@ class MyExtension(Extension):
                     if len(keyframes) <= frame_no:
                         keyframes.extend([None] * (frame_no - len(keyframes) + 1))
 
-                    keyframes[frame_no] = [int(key) if key.isdigit() else None for key in rows[1:]]
+                    keyframes[frame_no] = [key if key.isdigit() else None for key in rows[1:]]
 
             # アニメーションの準備
             self.setup_animation(doc)
@@ -117,11 +117,11 @@ class MyExtension(Extension):
             #     showInfo(k, v)
 
         except FileNotFoundError:
-            showError("エラー", f"CSVファイルを開けませんでした: {csv_file_path}")
+            showError(f"CSVファイルを開けませんでした: {csv_file_path}")
             return {}, []
 
         except Exception as e:
-            showError("エラー", str(e))
+            showError(str(e))
             return {}, []
 
 
@@ -134,7 +134,7 @@ class MyExtension(Extension):
                 self.target_layers[cell][key] = rows[1]
                 return
 
-        showWarn("未対応", f"未対応の設定です: {rows[0]}")
+        showWarn(f"未対応の設定です: {rows[0]}")
 
 
     # アニメーションの準備
@@ -150,8 +150,10 @@ class MyExtension(Extension):
                     # 0フレーム目にopacity:255でキーを打つ(初期化)
                     doc.setActiveNode(target_layer)
                     instance.action('add_scalar_keyframes').trigger()
+                    instance.action('interpolation_constant').trigger()
                     target_layer.setOpacity(255)
                     doc.refreshProjection()  # これをしないと落ちる
+                    showInfo("test", dir(instance))
 
     # キーフレームの設定
     def apply_keyframes(self, doc, keyframes):
@@ -174,7 +176,7 @@ class MyExtension(Extension):
                     if target_layer is None:
                         raise Exception(f"対象レイヤーが見つかりません: {target_layer_name}")
 
-                    target_layer.setOpacity(255*int(target_key)//255)
+                    target_layer.setOpacity(255 if target_key == keyframe_key else 0)
 
 Krita.instance().addExtension(MyExtension(Krita.instance()))
 
