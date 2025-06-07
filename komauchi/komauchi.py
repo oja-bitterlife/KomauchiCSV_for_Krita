@@ -59,6 +59,7 @@ class KeyframeGrid:
     def __init__(self, doc):
         self.data = []
 
+    # フレームのセルのキーを保存
     def setKey(self, frame_no, cell_index, key_no):
         # 入力チェック
         if key_no < 0 or key_no >= KEY_NO_MAX:
@@ -75,8 +76,17 @@ class KeyframeGrid:
         # キーを設定
         self.data[frame_no][cell_index] = key_no
 
+    # セルのキーを全フレームまとめて返す
     def getCellkeys(self, cell_index):
         return [cells[cell_index] for cells in self.data]
+
+    # セルのキーと対応するレイヤーが全部あるかチェックする
+    def check_target(self, target_layers):
+        for frame in self.data:
+            for i, key_no in enumerate(frame):
+                if key_no is not None:
+                    if target_layers.getLayer(i, key_no) is None:
+                        raise ValueError(f"{CELL_NAMES[i]}:{key_no} のレイヤーが設定されていません")
 
     def __repr__(self) -> str:
         return "\n".join(f"{i}: {str(frame)}" for i, frame in enumerate(self.data))
@@ -144,34 +154,34 @@ class KomauchiFromCSV(Extension):
                             continue
                         keyframe_grid.setKey(int(rows[0]), i, int(key))
 
+            # 設定確認
+            logDebug(target_layers)
+            logDebug(keyframe_grid)
+            keyframe_grid.check_target(target_layers)
+
             # アニメーションの準備
             self.setup_animation(doc, target_layers)
 
             # キーフレームを適用
             self.apply_keyframes(doc, target_layers, keyframe_grid)
 
-            # 設定確認
-            logDebug(target_layers)
-            logDebug(keyframe_grid)
-
-
         except FileNotFoundError:
             showError(f"CSVファイルを開けませんでした: {csv_file_path}")
-            return {}, []
+            return
 
         except Exception as e:
-            showError(str(e))
-            return {}, []
+            showError(e)
+            return
 
 
     # @設定の解析
     def load_setting(self, rows, target_layers):
         if rows[0] == "@key":
-            key_no = int(rows[1])
-            for cell_index, layer_name in enumerate(rows[2:]):
+            cell_index = CELL_NAMES.index(rows[1])
+            for i, layer_name in enumerate(rows[2:]):
                 if not layer_name:
                     continue
-                target_layers.setTarget(key_no, cell_index, layer_name)
+                target_layers.setTarget(i+1, cell_index, layer_name)
             return
 
         showWarn(f"未対応の設定です: {rows[0]}")
@@ -190,17 +200,23 @@ class KomauchiFromCSV(Extension):
                 # 0フレーム目にopacity:255でキーを打つ(初期化)
                 doc.setActiveNode(target_layer)
                 instance.action('add_scalar_keyframes').trigger()
-                # instance.action('interpolation_constant').trigger()
                 target_layer.setOpacity(255)
                 doc.refreshProjection()  # これをしないと落ちる
 
 
     # キーフレームの設定
     def apply_keyframes(self, doc, target_layers, keyframe_grid):
+        # セルごとに処理をする(フレームごとではない)
         for cell_index in range(len(CELL_NAMES)):
             befor_key_no = None
 
+            # 同じセルをフレームごとに処理する
             for frame_no, key_no in enumerate(keyframe_grid.getCellkeys(cell_index)):
+                # 0フレーム目は特別なので処理しない
+                if frame_no == 0:
+                    continue
+
+                # タイムラインの設定
                 doc.setCurrentTime(frame_no)
 
                 # セルの対象レイヤ全てを一旦消す
