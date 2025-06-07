@@ -166,7 +166,7 @@ class KomauchiFromCSV(Extension):
 
     # @設定の解析
     def load_setting(self, rows, target_layers):
-        if rows[0] == "@Key":
+        if rows[0] == "@key":
             key_no = int(rows[1])
             for cell_index, layer_name in enumerate(rows[2:]):
                 if not layer_name:
