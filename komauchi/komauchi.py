@@ -28,6 +28,7 @@ def logError(obj):
     qCritical(str(obj).encode('utf-8'))
 
 
+# 各セルのキー番号がどのレイヤーに対応するかを管理する
 class TargetLayer:
     def __init__(self, doc):
         self.data = [[None] * KEY_NO_MAX for _ in range(len(CELL_NAMES))]
@@ -38,7 +39,7 @@ class TargetLayer:
             if node.type() == 'grouplayer': # グループレイヤーの場合
                 for child in node.childNodes():
                     _collect_layers(child) # 子ノードも再帰的に収集
-            else:
+            elif node.type() == 'clonelayer': # クローンレイヤだけ回収する
                 self.krita_layers[node.name()] = node # レイヤー名をキー、レイヤーノードを値として格納
         _collect_layers(doc.rootNode()) # ドキュメントのルートノードからレイヤー収集を開始
 
@@ -55,6 +56,8 @@ class TargetLayer:
     def getTargetList(self, cell_index):
         return self.data[cell_index]
 
+
+# フレームごとの各セルのキー番号情報を管理する
 class KeyframeGrid:
     def __init__(self, doc):
         self.data = []
@@ -92,6 +95,7 @@ class KeyframeGrid:
         return "\n".join(f"{i}: {str(frame)}" for i, frame in enumerate(self.data))
 
 
+# 本体
 class KomauchiFromCSV(Extension):
 
     def __init__(self, parent):
